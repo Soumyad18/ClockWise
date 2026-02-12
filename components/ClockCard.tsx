@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { GlassCard } from './ui/GlassCard';
-import { Clock, ArrowRight, Sun, Moon, Timer } from 'lucide-react';
+import { Clock, ArrowRight, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   calculateLogoutTime, 
@@ -13,48 +13,85 @@ import { WorkLog } from './HistoryPanel';
 
 interface ClockCardProps {
   onLogComplete: (log: WorkLog) => void;
+  notificationPermission: NotificationPermission;
 }
 
-export const ClockCard: React.FC<ClockCardProps> = ({ onLogComplete }) => {
+export const ClockCard: React.FC<ClockCardProps> = ({ onLogComplete, notificationPermission }) => {
   const [loginTime, setLoginTime] = useState<string>('');
   const [logoutDate, setLogoutDate] = useState<Date | null>(null);
   const [remainingText, setRemainingText] = useState<string>('');
   const [progress, setProgress] = useState<number>(0);
+  
+  const [notifiedFiveMin, setNotifiedFiveMin] = useState(false);
+  const [notifiedFinal, setNotifiedFinal] = useState(false);
+  
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize with current time if empty
   useEffect(() => {
     if (!loginTime) {
       setLoginTime(getCurrentTimeInput());
     }
   }, []);
 
-  // Recalculate everything when loginTime changes
   useEffect(() => {
     if (loginTime) {
       const calculatedLogout = calculateLogoutTime(loginTime);
       setLogoutDate(calculatedLogout);
+      setNotifiedFiveMin(false);
+      setNotifiedFinal(false);
     } else {
       setLogoutDate(null);
     }
   }, [loginTime]);
 
-  // Update countdown timer and progress bar every minute
   useEffect(() => {
     if (!logoutDate || !loginTime) return;
 
-    const updateTimer = () => {
+    const tick = () => {
+      const now = new Date();
       setRemainingText(getTimeRemaining(logoutDate));
       setProgress(calculateProgress(loginTime, logoutDate));
+
+      if (notificationPermission === 'granted') {
+        const diffInMs = logoutDate.getTime() - now.getTime();
+        const diffInSeconds = diffInMs / 1000;
+        
+        if (diffInSeconds <= 300 && diffInSeconds > 0 && !notifiedFiveMin) {
+          new Notification("ClockWise ⏳", { 
+            body: "5 minutes remaining! Wrap up your tasks.",
+            icon: "/vite.svg" 
+          });
+          setNotifiedFiveMin(true);
+        }
+
+        if (diffInSeconds <= 0 && !notifiedFinal) {
+          new Notification("ClockWise 🎉", { 
+            body: "Time to log out! You've completed your 8h 35m shift.",
+            icon: "/vite.svg"
+          });
+          setNotifiedFinal(true);
+        }
+      }
     };
 
-    updateTimer(); // Run immediately
-    const interval = setInterval(updateTimer, 60000); // Update every minute
+    tick(); 
+    const interval = setInterval(tick, 10000); 
 
     return () => clearInterval(interval);
-  }, [logoutDate, loginTime]);
+  }, [logoutDate, loginTime, notificationPermission, notifiedFiveMin, notifiedFinal]);
 
   const handleSetCurrentTime = () => {
     setLoginTime(getCurrentTimeInput());
+  };
+
+  const handleInputClick = () => {
+    if (inputRef.current && 'showPicker' in inputRef.current) {
+        try {
+            (inputRef.current as any).showPicker();
+        } catch (e) {
+            // Fallback
+        }
+    }
   };
 
   const handleSaveLog = () => {
@@ -63,13 +100,11 @@ export const ClockCard: React.FC<ClockCardProps> = ({ onLogComplete }) => {
       const newLog: WorkLog = {
         id: crypto.randomUUID(),
         date: today.toISOString(),
-        loginTime: formatTimeDisplay(new Date().setHours(parseInt(loginTime.split(':')[0]), parseInt(loginTime.split(':')[1])) as unknown as Date), // Rough formatting for display, better to parse accurately but this works for display string "09:00" -> Date -> "9:00 AM"
+        loginTime: formatTimeDisplay(new Date().setHours(parseInt(loginTime.split(':')[0]), parseInt(loginTime.split(':')[1])) as unknown as Date), 
         logoutTime: formatTimeDisplay(logoutDate),
         timestamp: Date.now(),
       };
       
-      // We refine the formatting for the log visually
-      // Re-parse loginTime to get proper AM/PM format
       const [hours, mins] = loginTime.split(':').map(Number);
       const tempDate = new Date();
       tempDate.setHours(hours, mins);
@@ -80,98 +115,97 @@ export const ClockCard: React.FC<ClockCardProps> = ({ onLogComplete }) => {
   };
 
   return (
-    <GlassCard className="w-full p-8 flex flex-col items-center text-center">
-      <div className="mb-8 relative">
-        <div className="absolute inset-0 bg-indigo-500 blur-[60px] opacity-20 rounded-full animate-pulse-slow"></div>
-        <Clock className="w-16 h-16 text-indigo-400 relative z-10" />
-      </div>
-
-      <h1 className="text-3xl font-light text-white mb-2 tracking-tight">
-        Work Schedule
-      </h1>
-      <p className="text-white/40 text-sm mb-8 font-light">
-        8 hours 35 minutes standard shift
-      </p>
-
-      {/* Input Area */}
-      <div className="w-full max-w-xs space-y-4">
-        <label className="block text-left text-xs font-semibold text-white/50 uppercase tracking-wider pl-1">
+    <div className="w-full max-w-lg mx-auto flex flex-col items-center">
+      
+      {/* Input Section - Blends into background more */}
+      <div className="mb-10 w-full flex flex-col items-center">
+        <label className="text-indigo-300/60 text-xs font-bold tracking-[0.2em] uppercase mb-4">
           Start Time
         </label>
         
-        <div className="relative group">
-          <input
+        <div className="relative group flex items-center justify-center">
+           <input
+            ref={inputRef}
             type="time"
             value={loginTime}
             onChange={(e) => setLoginTime(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-2xl font-mono text-center text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all hover:bg-white/10 cursor-pointer"
+            onClick={handleInputClick}
+            className="bg-transparent border-none text-6xl md:text-7xl font-thin text-white text-center focus:ring-0 cursor-pointer [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:hidden w-full max-w-[300px] outline-none transition-all group-hover:scale-105 group-hover:text-indigo-100"
           />
-          <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
-            <Timer className="w-5 h-5 text-white/20" />
-          </div>
+          <button 
+            onClick={handleSetCurrentTime}
+            className="absolute -right-12 top-1/2 -translate-y-1/2 p-2 rounded-full text-white/20 hover:text-indigo-400 hover:bg-white/5 transition-all"
+            title="Set to now"
+          >
+            <Clock className="w-5 h-5" />
+          </button>
         </div>
-
-        <button
-          onClick={handleSetCurrentTime}
-          className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-medium flex items-center justify-center gap-1 w-full py-2"
-        >
-          Set to Now
-        </button>
       </div>
 
-      {/* Results Area */}
+      {/* Main Result Card */}
       <AnimatePresence mode="wait">
         {logoutDate && (
-          <motion.div
-            key="result"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            className="mt-10 w-full"
-          >
-            <div className="h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent mb-10" />
+          <GlassCard className="w-full p-8 md:p-10 flex flex-col items-center text-center relative overflow-visible">
+             {/* Glow Effect behind the card */}
+             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] bg-indigo-500/10 blur-3xl -z-10 rounded-full" />
 
-            <div className="grid grid-cols-1 gap-8">
-              <div className="relative group">
-                <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-violet-600 rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000"></div>
-                <div className="relative bg-black/40 backdrop-blur-sm border border-white/10 rounded-xl p-6">
-                  <p className="text-white/40 text-xs uppercase tracking-widest font-semibold mb-3">
-                    Clock Out At
-                  </p>
-                  <div className="flex items-baseline justify-center gap-2">
-                    <span className="text-5xl md:text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-br from-white to-white/70 tracking-tight">
-                      {formatTimeDisplay(logoutDate)}
-                    </span>
-                  </div>
-                  <div className="mt-4 flex flex-col items-center gap-2">
-                    <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden">
-                      <motion.div 
-                        initial={{ width: 0 }}
-                        animate={{ width: `${progress}%` }}
-                        transition={{ duration: 1, ease: "easeOut" }}
-                        className={`h-full ${progress >= 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`}
-                      />
-                    </div>
-                    <p className={`text-sm font-medium ${progress >= 100 ? 'text-emerald-400' : 'text-indigo-300'}`}>
-                      {remainingText}
-                    </p>
-                  </div>
-                </div>
+            <div className="w-full">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                <p className="text-emerald-400 text-xs font-bold tracking-[0.2em] uppercase">
+                  Target Reached At
+                </p>
               </div>
 
+              {/* Big Time Display */}
+              <div className="py-2">
+                <span className="text-6xl md:text-8xl font-bold text-transparent bg-clip-text bg-gradient-to-b from-white to-white/60 tracking-tighter drop-shadow-2xl">
+                  {formatTimeDisplay(logoutDate)}
+                </span>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="mt-8 mb-4 w-full relative">
+                <div className="flex justify-between text-xs text-white/30 font-medium mb-2 uppercase tracking-wider">
+                    <span>Progress</span>
+                    <span className={progress >= 100 ? "text-emerald-400" : "text-white/50"}>{Math.round(progress)}%</span>
+                </div>
+                <div className="w-full bg-white/5 h-2 rounded-full overflow-hidden backdrop-blur-sm border border-white/5">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${progress}%` }}
+                    transition={{ duration: 1.5, ease: "easeOut" }}
+                    className={`h-full relative ${progress >= 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+                  >
+                     {/* Shimmer effect on bar */}
+                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent w-full -translate-x-full animate-[shimmer_2s_infinite]" />
+                  </motion.div>
+                </div>
+                <p className="mt-3 text-sm text-indigo-200/60 font-medium">
+                  {remainingText}
+                </p>
+              </div>
+
+              {/* Action Button */}
               <motion.button
-                whileHover={{ scale: 1.02 }}
+                whileHover={{ scale: 1.02, backgroundColor: "rgba(255,255,255,0.1)" }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleSaveLog}
-                className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white py-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2"
+                className="mt-6 w-full py-4 rounded-xl border border-white/10 text-white/80 font-medium transition-all flex items-center justify-center gap-3 group bg-white/5"
               >
-                <span>Log this day</span>
-                <ArrowRight className="w-4 h-4" />
+                <span>Save to History</span>
+                <ArrowRight className="w-4 h-4 text-indigo-400 group-hover:translate-x-1 transition-transform" />
               </motion.button>
             </div>
-          </motion.div>
+          </GlassCard>
         )}
       </AnimatePresence>
-    </GlassCard>
+      
+      {!logoutDate && (
+        <div className="text-white/20 text-sm mt-10 animate-pulse">
+            Set a time to calculate your logout
+        </div>
+      )}
+    </div>
   );
 };
