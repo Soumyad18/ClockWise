@@ -1,0 +1,5 @@
+{
+  "name": "ClockWise",
+  "description": "A modern, aesthetic workday tracker that calculates your logout time based on an 8h 35m schedule. Features glassmorphic design and local history tracking.",
+  "requestFramePermissions": []
+}
